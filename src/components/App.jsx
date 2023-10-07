@@ -6,30 +6,12 @@ import Error from "./Error";
 import Header from "./Header";
 import Question from "./Question";
 import Progress from "./Progress";
-function reducer(state, action) {
-  switch (action.type) {
-    case "loading":
-      return { ...state, status: "loading" };
-    case "error":
-      return { ...state, error: action.payload, status: "error" };
-    case "questionsFetched":
-      return { ...state, questions: action.payload, status: "ready" };
-    case "start":
-      return { ...state, status: "start" };
-    case "nextQuestion":
-      return { ...state, index: state.index + 1, answer: null };
-    case "answer":
-      if (state.questions[state.index].correctOption !== action.payload)
-        return { ...state, answer: action.payload };
-      return {
-        ...state,
-        answer: action.payload,
-        score: state.score + state.questions[state.index].points,
-      };
-    default:
-      throw new Error("Error occured.");
-  }
-}
+import Main from "./Main";
+import Landing from "./Landing";
+import Result from "./Result";
+import HighScore from "./HighScore";
+import Timer from "./Timer";
+
 const initialState = {
   questions: [],
   index: 0,
@@ -37,13 +19,76 @@ const initialState = {
   answer: null,
   score: 0,
   highScore: 0,
+  time: null,
   status: "ready",
-  //start - ready - loading - error -start- finished
+  //start - ready - loading - error - finished
 };
 const url = "http://localhost:3000/questions";
+const SEC_PER_QUESTION = 30;
+function reducer(state, action) {
+  switch (action.type) {
+    case "loading":
+      return {
+        ...state,
+        highScore: JSON.parse(localStorage.getItem("highScore")),
+        status: "loading",
+      };
+    case "error":
+      return { ...state, error: action.payload, status: "error" };
+    case "questionsFetched":
+      return { ...state, questions: action.payload, status: "ready" };
+    case "start":
+      return {
+        ...state,
+        status: "start",
+        time: SEC_PER_QUESTION * state.questions.length,
+      };
+    case "nextQuestion":
+      return { ...state, index: state.index + 1, answer: null };
+    case "answer": {
+      const question = state.questions[state.index];
+
+      return {
+        ...state,
+        answer: action.payload,
+        score:
+          question.correctOption === action.payload
+            ? state.score + question.points
+            : state.score,
+      };
+    }
+    case "finish":
+      localStorage.setItem(
+        "highScore",
+        JSON.stringify(Math.max(state.highScore, state.score))
+      );
+      return {
+        ...state,
+        highScore: Math.max(state.highScore, state.score),
+        status: "finished",
+      };
+    case "tick":
+      return {
+        ...state,
+        time: state.time - 1,
+        status: state.time > 0 ? state.status : "finished",
+      };
+    case "restart":
+      return {
+        ...initialState,
+        questions: state.questions,
+        highScore: state.highScore,
+
+        status: "ready",
+      };
+    default:
+      throw new Error("Error occured.");
+  }
+}
+
 export default function App() {
   const [
-    { questions, index, status, error, answer, score, highScore },
+    { questions, index, status, error, answer, score, highScore, time },
     dispatch,
   ] = useReducer(reducer, initialState);
 
@@ -76,39 +121,50 @@ export default function App() {
   return (
     <div className="app">
       <Header />
-      {status === "ready" && (
-        <Button
-          className="btn btn-ui"
-          onClick={() => dispatch({ type: "start" })}
-        >
-          start
-        </Button>
-      )}
+      <Main>
+        {status === "ready" && (
+          <Landing dispatch={dispatch} numOfQuestions={numOfQuestions} />
+        )}
 
-      {status === "start" && (
-        <>
-          <Progress
-            numOfQuestions={numOfQuestions}
-            index={index}
-            score={score}
-            maxPossiblePoints={maxPossiblePoints}
-          />
-          <Question
-            question={questions[index]}
-            dispatch={dispatch}
-            answer={answer}
-          />
-          {index < numOfQuestions - 1 ? (
-            <Button onClick={() => dispatch({ type: "nextQuestion" })}>
-              Next
-            </Button>
-          ) : (
-            <Button>Finish</Button>
-          )}
-        </>
-      )}
-      {status === "loading" && <Loader />}
-      {status === "error" && <Error error={error} />}
+        {status === "start" && (
+          <>
+            <Progress
+              numOfQuestions={numOfQuestions}
+              index={index}
+              score={score}
+              maxPossiblePoints={maxPossiblePoints}
+            />
+            <Question
+              question={questions[index]}
+              dispatch={dispatch}
+              answer={answer}
+            />
+            <Timer dispatch={dispatch} time={time} />
+            {index < numOfQuestions - 1 ? (
+              <Button onClick={() => dispatch({ type: "nextQuestion" })}>
+                Next
+              </Button>
+            ) : (
+              <Button
+                onClick={() => {
+                  dispatch({ type: "finish" });
+                }}
+              >
+                Finish
+              </Button>
+            )}
+          </>
+        )}
+        {status === "finished" && (
+          <>
+            <Result maxPossiblePoints={maxPossiblePoints} score={score} />
+            <HighScore highscore={highScore} />
+            <Button onClick={() => dispatch({ type: "restart" })}>Retry</Button>
+          </>
+        )}
+        {status === "loading" && <Loader />}
+        {status === "error" && <Error error={error} />}
+      </Main>
     </div>
   );
 }
